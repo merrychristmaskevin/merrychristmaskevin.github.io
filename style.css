@@ -1,9 +1,9 @@
 ﻿body, html{
-  width:100%;
-  height:100%;
-  overflow:hidden;
-  font-family: 'Press Start 2P', cursive;
+  font-family: 'Roboto';font-size: 40px;
 }
+.responsive {
+    width: 100%;
+    height: auto;
 
 .center{
   position:absolute;
