@@ -99,16 +99,23 @@ async function ensureLoggedIn(page) {
 }
 
 async function isLoggedIn(page) {
-  return (await page.locator('a:has-text("Logout"), a:has-text("Log out"), a[href*="logout"]').first().isVisible().catch(() => false))
-    || (await isOnTeeSheet(page));
+  const indicators = [
+    'a:has-text("Logout")',
+    'a:has-text("Log out")',
+    'a[href*="logout"]',
+    'a:has-text("Book a tee time")',
+    'text=My Tee Times',
+    'text=Course Status',
+    'text=Club Website',
+  ];
+  for (const sel of indicators) {
+    if (await page.locator(sel).first().isVisible().catch(() => false)) return true;
+  }
+  return await isOnTeeSheet(page);
 }
 
 async function isOnTeeSheet(page) {
-  const selectors = ['table.teesheet', 'table#teesheet', '.teetimes', 'table.bookingtable', '[data-time]'];
-  for (const sel of selectors) {
-    if (await page.locator(sel).first().isVisible().catch(() => false)) return true;
-  }
-  return false;
+  return await waitForTeeSheet(page, 1500);
 }
 
 async function gotoTeeSheet(page, dateStr) {
