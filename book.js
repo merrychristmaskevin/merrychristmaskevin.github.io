@@ -290,10 +290,25 @@ async function bookSlot(page, target, partners) {
     }
   }
 
-  const confirmTimeBtn = page.locator('button, a, input[type="submit"]')
-    .filter({ hasText: `Book teetime at ${target.time}` })
-    .first();
-  await confirmTimeBtn.click();
+  const clicked = await page.evaluate((time) => {
+    const els = document.querySelectorAll('button, a, input[type="submit"]');
+    for (const el of els) {
+      const text = (el.textContent || el.value || '').replace(/\s+/g, ' ').trim();
+      if (!text.includes(`Book teetime at ${time}`)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+      el.click();
+      return true;
+    }
+    return false;
+  }, target.time);
+  if (!clicked) {
+    warn(`Could not click "Book teetime at ${target.time}" — no visible match`);
+    await dumpDebug(page, 'no-confirm-click');
+    return false;
+  }
   await randomDelay();
 
   const partnersPageReady = await page.waitForFunction(() => {
@@ -320,8 +335,25 @@ async function bookSlot(page, target, partners) {
     return false;
   }
 
-  const finish = page.locator('a, button, input[type="submit"]').filter({ hasText: /^\s*Finish\s*$/i }).first();
-  await finish.click();
+  const finishClicked = await page.evaluate(() => {
+    const els = document.querySelectorAll('a, button, input[type="submit"]');
+    for (const el of els) {
+      const text = (el.textContent || el.value || '').replace(/\s+/g, ' ').trim();
+      if (!/^Finish$/i.test(text)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      el.click();
+      return true;
+    }
+    return false;
+  });
+  if (!finishClicked) {
+    warn('Could not click Finish');
+    await dumpDebug(page, 'no-finish-click');
+    return false;
+  }
   await randomDelay();
 
   const confirmed = await page.waitForFunction(() => {
