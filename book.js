@@ -295,8 +295,19 @@ async function bookSlot(page, target, partners) {
 
   const playersCount = CONFIG.players || 1;
   if (playersCount > 1 && playersCount <= 4) {
-    const countClicked = await page.evaluate((count) => {
-      const els = document.querySelectorAll('button, a, div, li, span');
+    await page.waitForFunction((count) => {
+      const els = document.querySelectorAll('button, a, div, li, span, label');
+      for (const el of els) {
+        if ((el.textContent || '').replace(/\s+/g, ' ').trim() === String(count)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) return true;
+        }
+      }
+      return false;
+    }, playersCount, { timeout: 3000 }).catch(() => {});
+
+    let countClicked = await page.evaluate((count) => {
+      const els = document.querySelectorAll('button, a, div, li, span, label, input[type="radio"]');
       const candidates = [];
       for (const el of els) {
         const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
@@ -312,11 +323,52 @@ async function bookSlot(page, target, partners) {
       candidates[0].el.click();
       return true;
     }, playersCount);
+
+    if (!countClicked) {
+      countClicked = await page.evaluate((count) => {
+        const sels = [
+          `[data-players="${count}"]`,
+          `[data-count="${count}"]`,
+          `[data-numplayers="${count}"]`,
+          `[data-num="${count}"]`,
+          `[data-value="${count}"]`,
+        ];
+        for (const sel of sels) {
+          for (const el of document.querySelectorAll(sel)) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) continue;
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      }, playersCount);
+    }
+
+    if (!countClicked) {
+      countClicked = await page.evaluate((count) => {
+        const els = document.querySelectorAll('a, button, input');
+        for (const el of els) {
+          const onclick = el.getAttribute('onclick') || '';
+          const href = el.getAttribute('href') || '';
+          const combined = onclick + ' ' + href;
+          if (!new RegExp(`(\\(|=|/)\\s*${count}\\b`).test(combined)) continue;
+          if (!/player|num|count|seat|slot/i.test(combined)) continue;
+          const rect = el.getBoundingClientRect();
+          if (rect.width === 0 || rect.height === 0) continue;
+          el.click();
+          return true;
+        }
+        return false;
+      }, playersCount);
+    }
+
     if (countClicked) {
       info(`Selected ${playersCount} players`);
       await randomDelay(300, 600);
     } else {
       warn(`Could not click player-count "${playersCount}" tab`);
+      await dumpDebug(page, 'no-player-count');
     }
   }
 
