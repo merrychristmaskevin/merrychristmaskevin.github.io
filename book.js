@@ -262,10 +262,10 @@ async function bookSlot(page, target, partners) {
   await target.bookLocator.click();
   await randomDelay();
 
-  const playerModalReady = await page.waitForSelector(
-    'button:has-text("Book teetime"), a:has-text("Book teetime"), text=/Book teetime at/i',
-    { timeout: 10000 }
-  ).then(() => true).catch(() => false);
+  const playerModalReady = await page.waitForFunction(() => {
+    const t = (document.body && document.body.innerText) || '';
+    return /Book teetime at/i.test(t);
+  }, { timeout: 10000 }).then(() => true).catch(() => false);
   if (!playerModalReady) {
     warn('Player-count modal did not appear');
     await dumpDebug(page, 'no-player-modal');
@@ -274,21 +274,21 @@ async function bookSlot(page, target, partners) {
 
   const playersCount = CONFIG.players || 1;
   if (playersCount > 1 && playersCount <= 4) {
-    const numBtn = page.locator(`button, a, div, span`).filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
+    const numBtn = page.locator('button, a, div, span').filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
     if (await numBtn.isVisible().catch(() => false)) {
       await numBtn.click().catch(() => {});
       await randomDelay(300, 600);
     }
   }
 
-  const confirmTimeBtn = page.locator('button:has-text("Book teetime"), a:has-text("Book teetime"), :text-matches("Book teetime at", "i")').first();
+  const confirmTimeBtn = page.locator('button, a, input[type="submit"]').filter({ hasText: /Book teetime at/i }).first();
   await confirmTimeBtn.click();
   await randomDelay();
 
-  const partnersPageReady = await page.waitForSelector(
-    'a:has-text("Finish"), button:has-text("Finish"), text=/playing partners/i, text=/Player 1/i',
-    { timeout: 10000 }
-  ).then(() => true).catch(() => false);
+  const partnersPageReady = await page.waitForFunction(() => {
+    const t = (document.body && document.body.innerText) || '';
+    return /\bFinish\b/.test(t) || /playing partners/i.test(t);
+  }, { timeout: 10000 }).then(() => true).catch(() => false);
   if (!partnersPageReady) {
     warn('Partners page did not appear');
     await dumpDebug(page, 'no-partners-page');
@@ -309,14 +309,14 @@ async function bookSlot(page, target, partners) {
     return false;
   }
 
-  const finish = page.locator('a:has-text("Finish"), button:has-text("Finish"), input[value*="Finish" i]').first();
+  const finish = page.locator('a, button, input[type="submit"]').filter({ hasText: /^\s*Finish\s*$/i }).first();
   await finish.click();
   await randomDelay();
 
-  const confirmed = await page.waitForSelector(
-    'text=/successfully booked|booking confirmed|confirmation|your booking has been|tee time has been booked/i',
-    { timeout: 15000 }
-  ).then(() => true).catch(() => false);
+  const confirmed = await page.waitForFunction(() => {
+    const t = (document.body && document.body.innerText) || '';
+    return /successfully booked|booking confirmed|confirmation|your booking has been|tee time has been booked|booking is complete/i.test(t);
+  }, { timeout: 15000 }).then(() => true).catch(() => false);
   if (!confirmed) {
     warn('Confirmation marker not found');
     await dumpDebug(page, 'no-confirmation');
