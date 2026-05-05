@@ -67,7 +67,7 @@ async function ensureLoggedIn(page) {
   }
 
   info('Logging in');
-  if (!(await page.locator('input[name="username"]').first().isVisible().catch(() => false))) {
+  if (!(await page.locator('input[name="memberid"], input[name="username"]').first().isVisible().catch(() => false))) {
     await page.goto(LOGIN_URL, { waitUntil: 'domcontentloaded' });
     await randomDelay();
   }
@@ -76,13 +76,13 @@ async function ensureLoggedIn(page) {
   const password = process.env.IG_PASSWORD;
   if (!username || !password) throw new Error('IG_USERNAME / IG_PASSWORD not set in .env');
 
-  await humanType(page.locator('input[name="username"]').first(), username);
+  await humanType(page.locator('input[name="memberid"], input[name="username"]').first(), username);
   await randomDelay(200, 500);
-  await humanType(page.locator('input[name="password"]').first(), password);
+  await humanType(page.locator('input[name="pin"], input[name="password"]').first(), password);
   await randomDelay(200, 500);
 
   const submit = page.locator(
-    'button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")'
+    'input[type="submit"][value="Login"], button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")'
   ).first();
   await Promise.all([
     page.waitForLoadState('domcontentloaded'),
