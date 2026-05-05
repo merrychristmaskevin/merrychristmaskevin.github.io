@@ -5,6 +5,7 @@
   "partners": [],
   "max_retries": 20,
   "retry_interval_seconds": 10,
+  "headless": false,
   "preload": {
     "enabled": false,
     "release_time_local": "07:00",

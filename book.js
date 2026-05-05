@@ -350,10 +350,11 @@ async function preloadRefreshLoop(page, cfg) {
 
 async function main() {
   info(`Starting (dry-run=${DRY_RUN}, date=${CONFIG.date})`);
+  const headless = process.env.HEADLESS === '1' || CONFIG.headless === true;
   const context = await chromium.launchPersistentContext(path.join(__dirname, 'user-data'), {
-    headless: false,
-    viewport: null,
-    args: ['--start-maximized'],
+    headless,
+    viewport: headless ? { width: 1280, height: 900 } : null,
+    args: headless ? [] : ['--start-maximized'],
   });
   const page = context.pages()[0] || await context.newPage();
   page.setDefaultTimeout(20000);
