@@ -295,10 +295,28 @@ async function bookSlot(page, target, partners) {
 
   const playersCount = CONFIG.players || 1;
   if (playersCount > 1 && playersCount <= 4) {
-    const numBtn = page.locator('button:visible, a:visible').filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
-    if (await numBtn.isVisible().catch(() => false)) {
-      await numBtn.click().catch(() => {});
+    const countClicked = await page.evaluate((count) => {
+      const els = document.querySelectorAll('button, a, div, li, span');
+      const candidates = [];
+      for (const el of els) {
+        const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (text !== String(count)) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        candidates.push({ el, area: rect.width * rect.height });
+      }
+      candidates.sort((a, b) => a.area - b.area);
+      if (candidates.length === 0) return false;
+      candidates[0].el.click();
+      return true;
+    }, playersCount);
+    if (countClicked) {
+      info(`Selected ${playersCount} players`);
       await randomDelay(300, 600);
+    } else {
+      warn(`Could not click player-count "${playersCount}" tab`);
     }
   }
 
@@ -385,29 +403,114 @@ async function bookSlot(page, target, partners) {
   return true;
 }
 
-async function addPartner(page, name) {
-  const slot = page.locator('input[name^="player"], input[placeholder*="player" i], input[placeholder*="name" i]')
-    .filter({ hasNot: page.locator(':disabled') })
-    .filter({ has: page.locator('xpath=self::*[not(@value) or @value=""]') })
-    .first();
-
-  const target = (await slot.count()) > 0
-    ? slot
-    : page.locator('input[name^="player"], input[placeholder*="player" i]').first();
-
-  if (!(await target.isVisible().catch(() => false))) return false;
-
-  await humanType(target, name);
-  await randomDelay(400, 900);
-
-  const suggestion = page.locator(
-    `ul.ui-autocomplete li:has-text("${name}"), .autocomplete-suggestion:has-text("${name}"), li[role="option"]:has-text("${name}")`
-  ).first();
-  if (await suggestion.isVisible().catch(() => false)) {
-    await suggestion.click();
-    return true;
+async function addPartner(page, fullName) {
+  const parts = fullName.trim().split(/\s+/);
+  const forename = parts[0] || '';
+  const surname = parts.slice(1).join(' ') || '';
+  if (!forename || !surname) {
+    warn(`Partner name "${fullName}" must be "Firstname Surname"`);
+    return false;
   }
-  await target.press('Enter').catch(() => {});
+
+  const enterDetailsClicked = await clickVisibleByText(page, /^Enter Details$/i);
+  if (!enterDetailsClicked) {
+    info('No more empty "Enter Details" slots');
+    return false;
+  }
+  await randomDelay(400, 800);
+
+  const modalReady = await page.waitForFunction(() => {
+    return /Who are you playing with/i.test((document.body && document.body.innerText) || '');
+  }, { timeout: 5000 }).then(() => true).catch(() => false);
+  if (!modalReady) {
+    warn('"Who are you playing with?" modal did not appear');
+    return false;
+  }
+
+  if (!(await clickVisibleByText(page, /^A Guest$/i))) {
+    warn('"A Guest" button not found');
+    return false;
+  }
+  await randomDelay(300, 700);
+
+  if (!(await clickVisibleByText(page, /Add a new guest/i))) {
+    warn('"Add a new guest" link not found');
+    return false;
+  }
+  await randomDelay(500, 1000);
+
+  const formReady = await page.waitForFunction(() => {
+    return /Please enter your guest's details/i.test((document.body && document.body.innerText) || '');
+  }, { timeout: 5000 }).then(() => true).catch(() => false);
+  if (!formReady) {
+    warn('Guest details form did not appear');
+    return false;
+  }
+
+  if (!(await fillByLabel(page, 'Forename', forename))) {
+    warn(`Could not fill Forename for "${fullName}"`);
+    return false;
+  }
+  await randomDelay(200, 400);
+  if (!(await fillByLabel(page, 'Surname', surname))) {
+    warn(`Could not fill Surname for "${fullName}"`);
+    return false;
+  }
+  await randomDelay(200, 400);
+
+  if (!(await clickVisibleByText(page, /^Add Guest$/i))) {
+    warn('"Add Guest" submit button not found');
+    return false;
+  }
+  await randomDelay(800, 1200);
+
+  return true;
+}
+
+async function clickVisibleByText(page, regex) {
+  return await page.evaluate(({ source, flags }) => {
+    const re = new RegExp(source, flags);
+    const els = document.querySelectorAll('a, button, input[type="submit"], input[type="button"]');
+    for (const el of els) {
+      const text = (el.textContent || el.value || '').replace(/\s+/g, ' ').trim();
+      if (!re.test(text)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+      el.click();
+      return true;
+    }
+    return false;
+  }, { source: regex.source, flags: regex.flags });
+}
+
+async function fillByLabel(page, labelText, value) {
+  const elementId = await page.evaluate(({ label }) => {
+    const re = new RegExp(label, 'i');
+    const all = document.querySelectorAll('label, td, th, span, div, p');
+    for (const el of all) {
+      const direct = Array.from(el.childNodes)
+        .filter(n => n.nodeType === 3)
+        .map(n => n.textContent || '')
+        .join('');
+      if (!re.test(direct)) continue;
+      let parent = el.parentElement;
+      let depth = 0;
+      while (parent && depth < 6) {
+        const input = parent.querySelector('input[type="text"]:not([disabled]), input:not([type]):not([disabled]), input[type="email"]:not([disabled])');
+        if (input && input.offsetWidth > 0 && input.offsetHeight > 0) {
+          if (!input.id) input.id = '__field_' + Math.random().toString(36).slice(2);
+          return input.id;
+        }
+        parent = parent.parentElement;
+        depth++;
+      }
+    }
+    return null;
+  }, { label: labelText });
+  if (!elementId) return false;
+  await humanType(page.locator(`#${elementId}`), value);
   return true;
 }
 
