@@ -127,7 +127,10 @@ async function gotoTeeSheet(page, dateStr) {
   }
   if (!loaded) {
     await page.goto(TEE_URL, { waitUntil: 'domcontentloaded' });
-    if (!(await waitForTeeSheet(page, 15000))) throw new Error('Tee sheet did not appear');
+    if (!(await waitForTeeSheet(page, 15000))) {
+      await dumpDebug(page, 'no-teesheet');
+      throw new Error('Tee sheet did not appear');
+    }
     await navigateToDateViaUI(page, dateStr);
   }
   await page.waitForLoadState('networkidle').catch(() => {});
@@ -135,26 +138,31 @@ async function gotoTeeSheet(page, dateStr) {
 }
 
 async function waitForTeeSheet(page, timeout = 15000) {
-  const selectors = ['table.teesheet', 'table#teesheet', '.teetimes', 'table.bookingtable', 'tr[data-time]'];
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    for (const sel of selectors) {
-      if (await page.locator(sel).first().isVisible().catch(() => false)) return true;
-    }
-    await sleep(250);
+  try {
+    await page.waitForFunction(() => {
+      const text = document.body && document.body.innerText || '';
+      return /\bBook\b/.test(text) && /\b\d{1,2}:\d{2}\b/.test(text);
+    }, { timeout });
+    return true;
+  } catch (_) {
+    return false;
   }
-  return false;
 }
 
 async function navigateToDateViaUI(page, dateStr) {
   const target = new Date(dateStr + 'T00:00:00');
   for (let i = 0; i < 60; i++) {
-    const headerText = (await page.locator('h1, h2, .date-header, .teesheet-date').first().innerText().catch(() => '')) || '';
-    if (headerText.includes(dateStr) || matchesDate(headerText, target)) return;
-    const nextBtn = page.locator('a:has-text("Next"), a.next, button:has-text("Next"), a[title*="next" i]').first();
-    if (!(await nextBtn.isVisible().catch(() => false))) break;
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    if (matchesDate(bodyText, target)) return;
+    const nextBtn = page.locator(
+      'a:has-text("→"), button:has-text("→"), a:has-text("›"), a:has-text("Next"), a.next, a[title*="next" i], a[aria-label*="next" i], a[onclick*="next" i], a[href*="next" i]'
+    ).first();
+    if (!(await nextBtn.isVisible().catch(() => false))) {
+      info('No next-day arrow found, stopping date navigation');
+      break;
+    }
     await nextBtn.click();
-    await randomDelay(400, 900);
+    await randomDelay(600, 1200);
     await waitForTeeSheet(page, 5000);
   }
 }
@@ -166,44 +174,52 @@ function matchesDate(text, dateObj) {
 }
 
 async function parseTeeSheet(page) {
-  const rowSelectors = ['tr.teeslot', 'tr.booking-slot', 'tr[data-time]', 'table.teesheet tbody tr', 'table.bookingtable tbody tr'];
-  let rows = [];
-  for (const sel of rowSelectors) {
-    rows = await page.locator(sel).all();
-    if (rows.length > 0) break;
-  }
+  const bookLocator = page.locator('a, button, input[type="submit"], input[type="button"]').filter({ hasText: /^\s*Book\s*$/i });
+  const count = await bookLocator.count();
 
   const parsed = [];
-  for (const row of rows) {
-    const text = (await row.innerText().catch(() => '')).trim();
-    if (!text) continue;
+  for (let i = 0; i < count; i++) {
+    const btn = bookLocator.nth(i);
+    if (!(await btn.isVisible().catch(() => false))) continue;
 
-    const timeAttr = await row.getAttribute('data-time').catch(() => null);
-    const tMatch = timeAttr || (text.match(/\b([0-2]?\d:[0-5]\d)\b/) || [])[1];
-    if (!tMatch) continue;
-    const time = tMatch.padStart(5, '0');
+    const rowText = await btn.evaluate((el) => {
+      let cur = el.parentElement;
+      while (cur && cur !== document.body) {
+        const text = cur.innerText || '';
+        if (/\b\d{1,2}:\d{2}\b/.test(text)) return text;
+        cur = cur.parentElement;
+      }
+      return '';
+    }).catch(() => '');
 
-    const lower = text.toLowerCase();
-    const className = (await row.getAttribute('class').catch(() => '')) || '';
-    const isCompetition = /competition|comp\b|reserved|society|outing|matchplay/i.test(text)
-      || /competition|reserved/i.test(className);
+    const timeMatch = rowText.match(/\b(\d{1,2}:\d{2})\b/);
+    if (!timeMatch) continue;
+    const time = timeMatch[1].padStart(5, '0');
 
-    const bookBtn = row.locator('a:has-text("Book"), button:has-text("Book"), a.book, button.book, input[value="Book"]').first();
-    const hasBookButton = await bookBtn.isVisible().catch(() => false);
-
-    const slotsMatch = lower.match(/(\d+)\s+slot/);
-    const slotsAvailable = slotsMatch ? parseInt(slotsMatch[1], 10) : null;
+    const availabilityText = rowText.replace(/\s+/g, ' ').slice(0, 200);
+    const isCompetition = /competition|reserved|society|outing|matchplay|comp\b/i.test(availabilityText);
+    const slotsMatch = availabilityText.toLowerCase().match(/(\d+)\s*slot/);
 
     parsed.push({
       time,
-      availabilityText: text.replace(/\s+/g, ' ').slice(0, 200),
+      availabilityText,
       isCompetition,
-      hasBookButton,
-      slotsAvailable,
-      rowHandle: row,
+      hasBookButton: true,
+      slotsAvailable: slotsMatch ? parseInt(slotsMatch[1], 10) : null,
+      bookLocator: btn,
     });
   }
   return parsed;
+}
+
+async function dumpDebug(page, label) {
+  const t = ts().replace(/[:.]/g, '-');
+  try {
+    const html = await page.content();
+    fs.writeFileSync(path.join('logs', `debug-${label}-${t}.html`), html);
+    await page.screenshot({ path: `screenshots/debug-${label}-${t}.png`, fullPage: true });
+    info(`Saved debug HTML and screenshot (label=${label})`);
+  } catch (_) {}
 }
 
 function pickTarget(rows, preferredTimes) {
@@ -236,10 +252,7 @@ function slotsRank(row) {
 
 async function bookSlot(page, target, partners) {
   info(`Attempting to book ${target.time}`);
-  const bookBtn = target.rowHandle
-    .locator('a:has-text("Book"), button:has-text("Book"), a.book, button.book, input[value="Book"]')
-    .first();
-  await bookBtn.click();
+  await target.bookLocator.click();
 
   const modalAppeared = await page.waitForSelector(
     'form.bookingform, #bookingmodal, form[name="bookingform"], h1:has-text("Booking"), h2:has-text("Booking"), input[name^="player"]',
