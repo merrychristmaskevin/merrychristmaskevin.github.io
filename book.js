@@ -260,13 +260,38 @@ function slotsRank(row) {
 async function bookSlot(page, target, partners) {
   info(`Attempting to book ${target.time}`);
   await target.bookLocator.click();
+  await randomDelay();
 
-  const modalAppeared = await page.waitForSelector(
-    'form.bookingform, #bookingmodal, form[name="bookingform"], h1:has-text("Booking"), h2:has-text("Booking"), input[name^="player"]',
+  const playerModalReady = await page.waitForSelector(
+    'button:has-text("Book teetime"), a:has-text("Book teetime"), text=/Book teetime at/i',
     { timeout: 10000 }
   ).then(() => true).catch(() => false);
-  if (!modalAppeared) {
-    warn('Booking form did not appear');
+  if (!playerModalReady) {
+    warn('Player-count modal did not appear');
+    await dumpDebug(page, 'no-player-modal');
+    return false;
+  }
+
+  const playersCount = CONFIG.players || 1;
+  if (playersCount > 1 && playersCount <= 4) {
+    const numBtn = page.locator(`button, a, div, span`).filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
+    if (await numBtn.isVisible().catch(() => false)) {
+      await numBtn.click().catch(() => {});
+      await randomDelay(300, 600);
+    }
+  }
+
+  const confirmTimeBtn = page.locator('button:has-text("Book teetime"), a:has-text("Book teetime"), :text-matches("Book teetime at", "i")').first();
+  await confirmTimeBtn.click();
+  await randomDelay();
+
+  const partnersPageReady = await page.waitForSelector(
+    'a:has-text("Finish"), button:has-text("Finish"), text=/playing partners/i, text=/Player 1/i',
+    { timeout: 10000 }
+  ).then(() => true).catch(() => false);
+  if (!partnersPageReady) {
+    warn('Partners page did not appear');
+    await dumpDebug(page, 'no-partners-page');
     return false;
   }
   await randomDelay();
@@ -278,24 +303,23 @@ async function bookSlot(page, target, partners) {
   }
 
   if (DRY_RUN) {
-    info('Dry run: skipping final confirm click');
+    info('Dry run: stopping at partners page (no Finish click)');
     const dryShot = `screenshots/dryrun-${ts().replace(/[:.]/g, '-')}.png`;
     await page.screenshot({ path: dryShot, fullPage: true }).catch(() => {});
     return false;
   }
 
-  const confirm = page.locator(
-    'button:has-text("Confirm Booking"), button:has-text("Complete booking"), button:has-text("Confirm"), input[value*="Confirm" i], input[value*="Complete" i]'
-  ).first();
-  await confirm.click();
+  const finish = page.locator('a:has-text("Finish"), button:has-text("Finish"), input[value*="Finish" i]').first();
+  await finish.click();
+  await randomDelay();
 
   const confirmed = await page.waitForSelector(
-    'text=/successfully booked|booking confirmed|confirmation|your booking has been/i',
+    'text=/successfully booked|booking confirmed|confirmation|your booking has been|tee time has been booked/i',
     { timeout: 15000 }
   ).then(() => true).catch(() => false);
-
   if (!confirmed) {
     warn('Confirmation marker not found');
+    await dumpDebug(page, 'no-confirmation');
     return false;
   }
 
