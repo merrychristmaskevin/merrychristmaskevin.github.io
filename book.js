@@ -13,6 +13,17 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const CONFIG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const TIMEZONE = process.env.TZ || 'Europe/London';
 
+function resolveDate(dateStr) {
+  const m = /^\+(\d+)d$/.exec(String(dateStr || '').trim());
+  if (m) {
+    const d = new Date();
+    d.setDate(d.getDate() + parseInt(m[1], 10));
+    return d.toISOString().slice(0, 10);
+  }
+  return dateStr;
+}
+CONFIG.date = resolveDate(CONFIG.date);
+
 const RUN_TS = new Date().toISOString().replace(/[:.]/g, '-');
 ensureDirs(['screenshots', 'logs', 'user-data']);
 const LOG_PATH = path.join('logs', `run-${RUN_TS}.log`);
