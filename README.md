@@ -47,13 +47,12 @@ across runs. Logs go to `logs/run-<ts>.log`. Screenshots go to `screenshots/`
 You don't need a computer. Rent a tiny Linux VM in the cloud and SSH into it
 from your phone.
 
-**1. Pick a VPS** (any of these, ~£4–6/month):
-- [Hetzner](https://www.hetzner.com/cloud) CX11 (cheapest, ~£4/mo)
-- [DigitalOcean](https://www.digitalocean.com) Basic Droplet
-- [Linode](https://www.linode.com) Nanode
+**1. Pick a London VPS** (UK IP looks more natural to a UK golf club):
+- [DigitalOcean](https://www.digitalocean.com) — pick **London (LON1)** region, $6/mo Basic Droplet (free $200/60-day trial credit on signup)
+- [Linode/Akamai](https://www.linode.com) — pick **London** region, ~£5/mo Nanode
 
-Create an Ubuntu 24.04 server. Save the IP address and root password (or set up
-an SSH key — providers walk you through it).
+Create an **Ubuntu 24.04** server. Save the IP address and root password (or
+set up an SSH key — the provider walks you through it).
 
 **2. Install an SSH app on your phone**
 - iOS: **Termius** (free) or **Blink Shell**
@@ -64,9 +63,10 @@ Add a new host with your VM's IP, user `root`, and your password/key.
 **3. Connect and install everything** (paste these into the SSH session):
 
 ```bash
-apt update && apt install -y curl git
+apt update && apt install -y curl git xvfb
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
+timedatectl set-timezone Europe/London
 git clone https://github.com/merrychristmaskevin/merrychristmaskevin.github.io.git ig-bot
 cd ig-bot
 git checkout claude/golf-booking-automation-17Tk8
@@ -74,18 +74,23 @@ npm install
 npx playwright install --with-deps chromium
 ```
 
+`xvfb` is a fake virtual display — it lets headed Chromium run on the server
+even though there's no monitor. The bot stays in real headed mode (less
+detectable than headless), and you never see a window — `xvfb-run` runs it
+inside the virtual display.
+
 **4. Add your credentials**
 
 ```bash
 cp .env.example .env
 nano .env    # edit IG_USERNAME and IG_PASSWORD, Ctrl+O to save, Ctrl+X to exit
-nano config.json   # set date, preferred_times, partners. Set "headless": true
+nano config.json   # set date, preferred_times, partners. Leave "headless": false
 ```
 
 **5. Test it (dry run)**
 
 ```bash
-HEADLESS=1 npm run dry-run
+xvfb-run -a npm run dry-run
 ```
 
 Watch the log. Then download a screenshot to your phone to verify it found the
@@ -97,7 +102,7 @@ right slot:
 **6. Real booking**
 
 ```bash
-HEADLESS=1 npm run book
+xvfb-run -a npm run book
 ```
 
 **7. Want it to run automatically at booking-release time?**
@@ -108,10 +113,10 @@ the bot to start at 6:59am every day:
 ```bash
 crontab -e
 # add this line:
-59 6 * * * cd /root/ig-bot && HEADLESS=1 /usr/bin/npm run book >> /root/ig-bot/logs/cron.log 2>&1
+59 6 * * * cd /root/ig-bot && /usr/bin/xvfb-run -a /usr/bin/npm run book >> /root/ig-bot/logs/cron.log 2>&1
 ```
 
-Set the VM's timezone first: `timedatectl set-timezone Europe/London`.
+(Timezone was already set to Europe/London in step 3.)
 
 Enable `"preload": { "enabled": true, ... }` in `config.json` so the bot waits
 for the exact release second.
