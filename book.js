@@ -262,26 +262,37 @@ async function bookSlot(page, target, partners) {
   await target.bookLocator.click();
   await randomDelay();
 
-  const playerModalReady = await page.waitForFunction(() => {
-    const t = (document.body && document.body.innerText) || '';
-    return /Book teetime at/i.test(t);
-  }, { timeout: 10000 }).then(() => true).catch(() => false);
+  const playerModalReady = await page.waitForFunction((time) => {
+    const els = document.querySelectorAll('button, a, input[type="submit"]');
+    for (const el of els) {
+      const text = (el.textContent || el.value || '').replace(/\s+/g, ' ').trim();
+      if (!text.includes(`Book teetime at ${time}`)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+      return true;
+    }
+    return false;
+  }, target.time, { timeout: 10000 }).then(() => true).catch(() => false);
   if (!playerModalReady) {
-    warn('Player-count modal did not appear');
+    warn(`Player-count modal for ${target.time} did not appear`);
     await dumpDebug(page, 'no-player-modal');
     return false;
   }
 
   const playersCount = CONFIG.players || 1;
   if (playersCount > 1 && playersCount <= 4) {
-    const numBtn = page.locator('button, a, div, span').filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
+    const numBtn = page.locator('button:visible, a:visible').filter({ hasText: new RegExp(`^\\s*${playersCount}\\s*$`) }).first();
     if (await numBtn.isVisible().catch(() => false)) {
       await numBtn.click().catch(() => {});
       await randomDelay(300, 600);
     }
   }
 
-  const confirmTimeBtn = page.locator('button, a, input[type="submit"]').filter({ hasText: /Book teetime at/i }).first();
+  const confirmTimeBtn = page.locator('button, a, input[type="submit"]')
+    .filter({ hasText: `Book teetime at ${target.time}` })
+    .first();
   await confirmTimeBtn.click();
   await randomDelay();
 
