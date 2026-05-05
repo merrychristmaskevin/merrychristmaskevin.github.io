@@ -460,6 +460,10 @@ async function main() {
 
         const rows = await parseTeeSheet(page);
         info(`Parsed ${rows.length} rows`);
+        info(`Current URL: ${page.url()}`);
+        if (rows.length === 0) {
+          await dumpDebug(page, 'zero-rows');
+        }
         for (const r of rows.slice(0, 30)) {
           info(`  ${r.time}  comp=${r.isCompetition}  book=${r.hasBookButton}  slots=${r.slotsAvailable ?? '-'}  | ${r.availabilityText.slice(0, 80)}`);
         }
