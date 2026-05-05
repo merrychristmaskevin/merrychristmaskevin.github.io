@@ -60,8 +60,9 @@ async function ensureLoggedIn(page) {
   info('Navigating to member booking');
   await page.goto(TEE_URL, { waitUntil: 'domcontentloaded' });
   await randomDelay();
+  await dismissCookieBanner(page);
 
-  if (await isOnTeeSheet(page)) {
+  if (await isLoggedIn(page)) {
     info('Existing session detected, skipping login');
     return;
   }
@@ -103,19 +104,23 @@ async function isLoggedIn(page) {
     'a:has-text("Logout")',
     'a:has-text("Log out")',
     'a[href*="logout"]',
-    'a:has-text("Book a tee time")',
-    'text=My Tee Times',
-    'text=Course Status',
-    'text=Club Website',
   ];
   for (const sel of indicators) {
     if (await page.locator(sel).first().isVisible().catch(() => false)) return true;
   }
-  return await isOnTeeSheet(page);
+  return false;
 }
 
 async function isOnTeeSheet(page) {
   return await waitForTeeSheet(page, 1500);
+}
+
+async function dismissCookieBanner(page) {
+  const btn = page.locator('button, a, input[type="submit"]').filter({ hasText: /accept cookies/i }).first();
+  if (await btn.isVisible().catch(() => false)) {
+    await btn.click().catch(() => {});
+    await randomDelay(200, 500);
+  }
 }
 
 async function gotoTeeSheet(page, dateStr) {
@@ -147,8 +152,15 @@ async function gotoTeeSheet(page, dateStr) {
 async function waitForTeeSheet(page, timeout = 15000) {
   try {
     await page.waitForFunction(() => {
-      const text = document.body && document.body.innerText || '';
-      return /\bBook\b/.test(text) && /\b\d{1,2}:\d{2}\b/.test(text);
+      const text = (document.body && document.body.innerText) || '';
+      if (!/\b\d{1,2}:\d{2}\b/.test(text)) return false;
+      if (/slots available/i.test(text)) return true;
+      const btns = document.querySelectorAll('button, a');
+      for (const b of btns) {
+        const t = (b.textContent || '').replace(/\s+/g, ' ').trim();
+        if (/^Book$/i.test(t)) return true;
+      }
+      return false;
     }, { timeout });
     return true;
   } catch (_) {
